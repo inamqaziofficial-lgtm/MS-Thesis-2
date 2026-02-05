@@ -32,7 +32,8 @@ def extract_domain_info(domain):
     try:
         w = whois.whois(registered)
         created = w.creation_date
-        if isinstance(created, list): created = created[0]
+        if isinstance(created, list):
+            created = created[0]
         created = to_naive(created)
         info["domain_age_days"] = (now - created).days if created else None
     except:
@@ -73,33 +74,41 @@ def rule_based_score(info):
     return score / total
 
 # =========================================================
-# EMAIL HEADER RULE AGENT
+# EMAIL HEADER RULE AGENT (WITH REPORT)
 # =========================================================
-def parse_header(header):
-    return {
-        "spf": re.search(r"spf=(\w+)", header, re.I),
-        "dkim": re.search(r"dkim=(\w+)", header, re.I),
-        "dmarc": re.search(r"dmarc=(\w+)", header, re.I),
-        "received": re.findall(r"^Received:", header, re.I | re.M)
-    }
+def extract_email(header_text):
+    f = re.findall(r"From:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
+    r = re.findall(r"Reply-To:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
+    return f[0] if f else None, r[0] if r else None
 
-def header_risk_score(text):
-    h = parse_header(text)
-    score = 0
-    total = 4
-    if not (h["spf"] and "pass" in h["spf"].group(0).lower()):
-        score += 1
-    if not (h["dkim"] and "pass" in h["dkim"].group(0).lower()):
-        score += 1
-    if not (h["dmarc"] and "pass" in h["dmarc"].group(0).lower()):
-        score += 1
-    if len(h["received"]) < 2:
-        score += 1
-    return score / total
+def header_rule_report(header):
+    report = {}
 
-def contains_header(text):
-    markers = ["received:", "dkim", "spf=", "dmarc="]
-    return any(m in text.lower() for m in markers)
+    spf = re.search(r"spf=(\w+)", header, re.I)
+    dkim = re.search(r"dkim=(\w+)", header, re.I)
+    dmarc = re.search(r"dmarc=(\w+)", header, re.I)
+    received = re.findall(r"^Received:", header, re.I | re.M)
+
+    report["Rule 1 (SPF check)"] = "PASS" if spf and "pass" in spf.group(0).lower() else "FAIL"
+    report["Rule 2 (DKIM check)"] = "PASS" if dkim and "pass" in dkim.group(0).lower() else "FAIL"
+    report["Rule 3 (DMARC check)"] = "PASS" if dmarc and "pass" in dmarc.group(0).lower() else "FAIL"
+
+    from_addr, reply_addr = extract_email(header)
+    if reply_addr is None:
+        report["Rule 4 (From = Reply-To)"] = "PASS"
+    elif from_addr and reply_addr:
+        report["Rule 4 (From = Reply-To)"] = "PASS" if from_addr.split("@")[1] == reply_addr.split("@")[1] else "FAIL"
+    else:
+        report["Rule 4 (From = Reply-To)"] = "FAIL"
+
+    report["Rule 5 (Received hops ≥ 2)"] = "PASS" if len(received) >= 2 else "FAIL"
+
+    return report
+
+def header_risk_score(header):
+    report = header_rule_report(header)
+    fails = list(report.values()).count("FAIL")
+    return fails / len(report), report
 
 # =========================================================
 # MODEL LOADER
@@ -132,8 +141,7 @@ mode = st.radio("Select Mode", ["URL Detection","Email Detection"])
 # URL MODE
 # =========================================================
 if mode == "URL Detection":
-
-    url = st.text_input("Enter URL or domain")
+    url = st.text_input("Enter URL")
 
     if st.button("Analyze URL"):
         info = extract_domain_info(url)
@@ -152,37 +160,34 @@ if mode == "URL Detection":
         st.metric("URL Suspiciousness", round(final_prob,3))
         st.write("Coordinator decision:", "PHISHING" if pred else "SAFE")
 
-        with st.expander("Domain Details"):
-            st.json(info)
-
 # =========================================================
 # EMAIL MODE
 # =========================================================
 else:
+    st.subheader("Email Content Analysis")
+    content = st.text_area("Email Content")
 
-    st.subheader("1️⃣ Email Content Analysis")
-    content = st.text_area("Paste EMAIL BODY here")
-
-    st.subheader("2️⃣ Email Header Analysis")
-    header = st.text_area("Paste EMAIL HEADER here")
+    st.subheader("Email Header Analysis")
+    header = st.text_area("Email Header")
 
     if st.button("Analyze Email"):
-
-        # Email content agent
         email_prob = 0
         if models["email_agent"]:
             v = models["email_vectorizer"].transform([content])
             email_prob = models["email_agent"].predict_proba(v)[0][1]
 
-        # Header agent
-        header_prob = header_risk_score(header) if header else 0
+        header_prob, report = header_risk_score(header) if header else (0, {})
 
-        combined_signal = max(email_prob, header_prob)
-        meta = [[0,combined_signal,0,1]]
-
+        combined = max(email_prob, header_prob)
+        meta = [[0,combined,0,1]]
         pred = models["coordinator_agent"].predict(meta)[0]
 
         st.write("Email Content Agent:", round(email_prob,3))
         st.write("Header Agent:", round(header_prob,3))
-        st.metric("Coordinator Signal", round(combined_signal,3))
+        st.metric("Coordinator Signal", round(combined,3))
         st.write("Coordinator decision:", "PHISHING" if pred else "SAFE")
+
+        if report:
+            st.markdown("### RULE CHECK REPORT")
+            for k,v in report.items():
+                st.write(f"{k}: {v}")
