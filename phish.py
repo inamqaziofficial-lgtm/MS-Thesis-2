@@ -157,9 +157,11 @@ elif mode == "Email Detection":
     header = st.text_area("Email Header")
 
     if st.button("Analyze Email"):
-        email_prob = models["email_agent"].predict_proba(
-            models["email_vectorizer"].transform([content])
-        )[0][1]
+        email_prob = 0
+        if content.strip():   # 👈 IMPORTANT
+            email_prob = models["email_agent"].predict_proba(
+                models["email_vectorizer"].transform([content])
+            )[0][1]
 
         header_prob, report = header_risk_score(header) if header else (0, {})
 
