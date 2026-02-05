@@ -1,58 +1,119 @@
 import streamlit as st
-import joblib
+import joblib, socket, ssl, math, tldextract, re
+import whois, dns.resolver
+from datetime import datetime
 
-# =========================================================
-# CONFIG
-# =========================================================
-URL_BLEND = 0.6
+URL_BLEND = 0.3
 THRESHOLD = 0.5
 
 # =========================================================
-# LOAD MODELS
+# UTILITIES
+# =========================================================
+def shannon_entropy(s):
+    if not s:
+        return 0.0
+    prob = [float(s.count(c)) / len(s) for c in set(s)]
+    return -sum([p * math.log2(p) for p in prob])
+
+def to_naive(dt):
+    if isinstance(dt, datetime):
+        return dt.replace(tzinfo=None)
+    return dt
+
+def verdict(p):
+    return "PHISHING" if p >= THRESHOLD else "SAFE"
+
+# =========================================================
+# DOMAIN RULE AGENT
+# =========================================================
+def extract_domain_info(domain):
+    info = {}
+    now = datetime.utcnow()
+
+    ext = tldextract.extract(domain)
+    registered = ext.registered_domain or domain
+
+    try:
+        w = whois.whois(registered)
+        created = w.creation_date
+        if isinstance(created, list):
+            created = created[0]
+        created = to_naive(created)
+        info["domain_age_days"] = (now - created).days if created else None
+    except:
+        info["domain_age_days"] = None
+
+    try:
+        a = dns.resolver.resolve(registered, 'A', lifetime=5)
+        info["resolved_ips"] = [r.to_text() for r in a]
+    except:
+        info["resolved_ips"] = []
+
+    try:
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=registered) as s:
+            s.settimeout(4)
+            s.connect((registered, 443))
+            info["cert_present"] = True
+    except:
+        info["cert_present"] = False
+
+    label = registered.split(".")[0]
+    info["entropy"] = shannon_entropy(label)
+    return info
+
+def rule_based_score(info):
+    score = 0
+    if mentioned:=info["domain_age_days"] is not None and info["domain_age_days"] < 30: score += 1
+    if not info["resolved_ips"]: score += 1
+    if not info["cert_present"]: score += 1
+    if info["entropy"] > 3.5: score += 1
+    return score / 4
+
+# =========================================================
+# EMAIL HEADER RULE AGENT
+# =========================================================
+def extract_email(header_text):
+    f = re.findall(r"From:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
+    r = re.findall(r"Reply-To:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
+    return f[0] if f else None, r[0] if r else None
+
+def header_rule_report(header):
+    report = {}
+    spf = re.search(r"spf=(\w+)", header, re.I)
+    dkim = re.search(r"dkim=(\w+)", header, re.I)
+    dmarc = re.search(r"dmarc=(\w+)", header, re.I)
+    received = re.findall(r"^Received:", header, re.I | re.M)
+
+    report["SPF"] = "PASS" if spf and "pass" in spf.group(0).lower() else "FAIL"
+    report["DKIM"] = "PASS" if dkim and "pass" in dkim.group(0).lower() else "FAIL"
+    report["DMARC"] = "PASS" if dmarc and "pass" in dmarc.group(0).lower() else "FAIL"
+
+    from_addr, reply_addr = extract_email(header)
+    report["From/Reply-To"] = "PASS" if (not reply_addr or from_addr.split("@")[1] == reply_addr.split("@")[1]) else "FAIL"
+    report["Received hops"] = "PASS" if len(received) >= 2 else "FAIL"
+
+    return report
+
+def header_risk_score(header):
+    report = header_rule_report(header)
+    fails = list(report.values()).count("FAIL")
+    return fails / len(report), report
+
+# =========================================================
+# MODEL LOADER
 # =========================================================
 @st.cache_resource
 def load_models():
     models = {}
-    try:
-        models["url_agent"] = joblib.load("url_agent.pkl")
-        models["url_vectorizer"] = joblib.load("url_vectorizer.pkl")
-        models["email_agent"] = joblib.load("email_agent.pkl")
-        models["email_vectorizer"] = joblib.load("email_vectorizer.pkl")
-        models["coordinator_agent"] = joblib.load("coordinator_agent.pkl")
-    except:
-        pass
+    for n in ["url_agent","email_agent","coordinator_agent","url_vectorizer","email_vectorizer"]:
+        try:
+            models[n] = joblib.load(f"{n}.pkl")
+        except:
+            models[n] = None
     return models
 
-
 models = load_models()
-
-# =========================================================
-# HELPER FUNCTIONS
-# =========================================================
-def agent_verdict(prob, threshold=THRESHOLD):
-    return "PHISHING" if prob >= threshold else "SAFE"
-
-
-def extract_domain_info(url):
-    # Dummy placeholder – keep your real implementation
-    return {"url": url, "length": len(url)}
-
-
-def rule_based_score(info):
-    # Dummy placeholder – keep your real implementation
-    return 0.7 if info["length"] > 25 else 0.2
-
-
-def header_risk_score(header):
-    # Dummy placeholder – keep your real implementation
-    report = {
-        "SPF": "Fail" if "spf=fail" in header.lower() else "Pass",
-        "DKIM": "Fail" if "dkim=fail" in header.lower() else "Pass",
-        "DMARC": "Fail" if "dmarc=fail" in header.lower() else "Pass"
-    }
-    risk = 0.8 if "fail" in " ".join(report.values()).lower() else 0.1
-    return risk, report
-
 
 # =========================================================
 # UI
@@ -60,148 +121,85 @@ def header_risk_score(header):
 st.set_page_config(page_title="Multi-Agent Phishing Detector", layout="wide")
 st.title("🛡️ Multi-Agent Phishing Detector")
 
-st.sidebar.header("Loaded Models")
-for k, v in models.items():
-    st.sidebar.write(f"{k}: {'✅' if v else '❌'}")
-
-mode = st.radio("Select Mode", ["URL Detection", "Email Detection"])
+mode = st.radio(
+    "Select Mode",
+    ["URL Detection", "Email Detection", "Combined URL + Email"]
+)
 
 # =========================================================
-# URL MODE
+# MODE 1: URL ONLY
 # =========================================================
 if mode == "URL Detection":
     url = st.text_input("Enter URL")
 
-    if st.button("Analyze URL") and url:
+    if st.button("Analyze URL"):
         info = extract_domain_info(url)
-        rule_score = rule_based_score(info)
+        rule_p = rule_based_score(info)
+        ml_p = models["url_agent"].predict_proba(models["url_vectorizer"].transform([url]))[0][1]
 
-        ml_prob = 0
-        if models.get("url_agent"):
-            v = models["url_vectorizer"].transform([url])
-            ml_prob = models["url_agent"].predict_proba(v)[0][1]
+        final = URL_BLEND*ml_p + (1-URL_BLEND)*rule_p
+        pred = models["coordinator_agent"].predict([[final,0,1,0]])[0]
 
-        final_prob = URL_BLEND * ml_prob + (1 - URL_BLEND) * rule_score
-        meta = [[final_prob, 0, 1, 0]]
-        pred = models["coordinator_agent"].predict(meta)[0]
-
-        # ===============================
-        # AGENT VERDICTS
-        # ===============================
-        url_verdict = agent_verdict(ml_prob)
-        rule_verdict = agent_verdict(rule_score)
-        coord_verdict = "PHISHING" if pred else "SAFE"
-
-        agent_decisions = [url_verdict, rule_verdict]
-        disagreement = len(set(agent_decisions)) > 1
-
-        # ===============================
-        # MAIN RESULT
-        # ===============================
-        st.metric("Final URL Risk Score", round(final_prob, 3))
-        st.write("### Coordinator Decision:", coord_verdict)
-
-        # ===============================
-        # AGENT BREAKDOWN
-        # ===============================
-        st.subheader("🧠 Agent-Level Decisions")
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.metric("URL ML Agent", round(ml_prob, 3), url_verdict)
-
-        with c2:
-            st.metric("URL Rule Agent", round(rule_score, 3), rule_verdict)
-
-        if disagreement:
-            st.warning("⚠ Agents Disagree — Coordinator resolved the conflict")
-        else:
-            st.success("✅ All Agents Agree")
-
-        # ===============================
-        # DECISION TRACE
-        # ===============================
-        st.subheader("🧾 Decision Trace")
-        trace = [
-            "Input URL received",
-            f"URL ML Agent → {round(ml_prob,3)} → {url_verdict}",
-            f"URL Rule Agent → {round(rule_score,3)} → {rule_verdict}",
-            f"Coordinator fused results → {coord_verdict}"
-        ]
-
-        for step in trace:
-            st.write("•", step)
-
-        st.json(info)
-
+        st.metric("Final URL Risk", round(final,3))
+        st.write("Decision:", verdict(pred))
 
 # =========================================================
-# EMAIL MODE
+# MODE 2: EMAIL ONLY
 # =========================================================
-else:
+elif mode == "Email Detection":
     content = st.text_area("Email Content")
     header = st.text_area("Email Header")
 
-    if st.button("Analyze Email") and content:
-        email_prob = 0
-        if models.get("email_agent"):
-            v = models["email_vectorizer"].transform([content])
-            email_prob = models["email_agent"].predict_proba(v)[0][1]
+    if st.button("Analyze Email"):
+        email_p = models["email_agent"].predict_proba(models["email_vectorizer"].transform([content]))[0][1]
+        header_p, report = header_risk_score(header)
 
-        header_prob, report = header_risk_score(header) if header else (0, {})
+        combined = max(email_p, header_p)
+        pred = models["coordinator_agent"].predict([[0,combined,0,1]])[0]
 
-        combined = max(email_prob, header_prob)
-        meta = [[0, combined, 0, 1]]
+        st.metric("Final Email Risk", round(combined,3))
+        st.write("Decision:", verdict(pred))
+
+# =========================================================
+# MODE 3: COMBINED (⭐ THIS IS THE NEW PART ⭐)
+# =========================================================
+else:
+    st.subheader("🔗 URL Input")
+    url = st.text_input("Enter URL")
+
+    st.subheader("📧 Email Content")
+    content = st.text_area("Email Content")
+
+    st.subheader("📩 Email Header (optional)")
+    header = st.text_area("Email Header")
+
+    if st.button("Analyze FULL ATTACK VECTOR"):
+        # URL agents
+        info = extract_domain_info(url)
+        url_rule_p = rule_based_score(info)
+        url_ml_p = models["url_agent"].predict_proba(
+            models["url_vectorizer"].transform([url])
+        )[0][1]
+        url_final = URL_BLEND*url_ml_p + (1-URL_BLEND)*url_rule_p
+
+        # Email agents
+        email_p = models["email_agent"].predict_proba(
+            models["email_vectorizer"].transform([content])
+        )[0][1]
+        header_p, report = header_risk_score(header) if header else (0,{})
+        email_final = max(email_p, header_p)
+
+        # Coordinator sees EVERYTHING
+        meta = [[url_final, email_final, 1, 1]]
         pred = models["coordinator_agent"].predict(meta)[0]
 
-        # ===============================
-        # AGENT VERDICTS
-        # ===============================
-        email_verdict = agent_verdict(email_prob)
-        header_verdict = agent_verdict(header_prob)
-        coord_verdict = "PHISHING" if pred else "SAFE"
+        st.subheader("🧠 Agent Scores")
+        st.write(f"URL Agent → {round(url_final,3)} ({verdict(url_final)})")
+        st.write(f"Email Agent → {round(email_final,3)} ({verdict(email_final)})")
 
-        agent_decisions = [email_verdict, header_verdict]
-        disagreement = len(set(agent_decisions)) > 1
-
-        # ===============================
-        # MAIN RESULT
-        # ===============================
-        st.metric("Final Email Risk Score", round(combined, 3))
-        st.write("### Coordinator Decision:", coord_verdict)
-
-        # ===============================
-        # AGENT BREAKDOWN
-        # ===============================
-        st.subheader("🧠 Agent-Level Decisions")
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.metric("Email Content Agent", round(email_prob, 3), email_verdict)
-
-        with c2:
-            st.metric("Header Rule Agent", round(header_prob, 3), header_verdict)
-
-        if disagreement:
-            st.warning("⚠ Agents Disagree — Coordinator resolved the conflict")
-        else:
-            st.success("✅ All Agents Agree")
-
-        # ===============================
-        # DECISION TRACE
-        # ===============================
-        st.subheader("🧾 Decision Trace")
-        trace = [
-            "Email input received",
-            f"Email Content Agent → {round(email_prob,3)} → {email_verdict}",
-            f"Header Rule Agent → {round(header_prob,3)} → {header_verdict}",
-            f"Coordinator fused results → {coord_verdict}"
-        ]
-
-        for step in trace:
-            st.write("•", step)
+        st.metric("🚨 FINAL COORDINATOR DECISION", verdict(pred))
 
         if report:
-            st.subheader("📋 Header Rule Check Report")
-            for k, v in report.items():
+            st.subheader("📋 Header Rule Report")
+            for k,v in report.items():
                 st.write(f"{k}: {v}")
