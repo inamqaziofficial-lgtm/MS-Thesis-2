@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # =========================================================
-# SAFE DARK THEME (NO AGGRESSIVE CSS)
+# DARK THEME WITH FIXED LABELS + CURSOR
 # =========================================================
 st.markdown("""
 <style>
@@ -47,12 +47,20 @@ h2, h3 {
     color: #34D399 !important;
 }
 
+/* INPUT LABELS FIX */
+div[data-testid="stWidgetLabel"] label {
+    color: #E2E8F0 !important;
+    font-weight: 600;
+    font-size: 14px;
+}
+
 /* Inputs */
 textarea, input {
     background-color: #1E293B !important;
     color: #F8FAFC !important;
     border: 1px solid #334155 !important;
-    caret-color: #22D3EE !important;  /* Visible cursor */
+    border-radius: 8px !important;
+    caret-color: #22D3EE !important;
 }
 
 /* Buttons */
@@ -226,117 +234,53 @@ def load_models():
 models = load_models()
 
 # =========================================================
-# URL MODE
+# COMBINED MODE (Most Used)
 # =========================================================
-if mode == "URL Detection":
+url = st.text_input("Enter URL")
+content = st.text_area("Email Content")
 
-    url = st.text_input("Enter URL")
+if st.button("Analyze FULL ATTACK VECTOR"):
 
-    if st.button("Analyze URL") and url.strip():
+    if not url.strip() or not content.strip():
+        st.warning("Both URL and Email content required.")
+    else:
 
-        info = extract_domain_info(url)
-        rule_score = rule_based_score(info)
-
-        ml_prob = models["url_agent"].predict_proba(
+        url_prob = models["url_agent"].predict_proba(
             models["url_vectorizer"].transform([url])
         )[0][1]
-
-        final_prob = 0.3 * ml_prob + 0.7 * rule_score
-        pred = final_prob >= 0.5
-
-        st.subheader("🔍 URL Analysis Result")
-        st.progress(final_prob)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Suspiciousness Score", f"{final_prob:.3f}")
-        with col2:
-            if pred:
-                st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>', unsafe_allow_html=True)
-            else:
-                st.markdown('<p class="safe">✅ SAFE URL</p>', unsafe_allow_html=True)
-
-# =========================================================
-# EMAIL MODE
-# =========================================================
-elif mode == "Email Detection":
-
-    content = st.text_area("Email Content")
-    header = st.text_area("Email Header (Optional)")
-
-    if st.button("Analyze Email") and content.strip():
 
         email_prob = models["email_agent"].predict_proba(
             models["email_vectorizer"].transform([content])
         )[0][1]
 
-        header_prob, report = header_risk_score(header) if header else (0, {})
-        combined = max(email_prob, header_prob)
-        pred = combined >= 0.5
+        X_meta = np.array([[url_prob, email_prob, 1, 1]])
+        coord_prob = models["coordinator_agent"].predict_proba(X_meta)[0][1]
+        coord_pred = coord_prob >= 0.5
 
-        st.subheader("📧 Email Analysis Result")
-        st.progress(combined)
+        st.subheader("🤖 Coordinator Meta-Agent Decision")
+        st.progress(coord_prob)
 
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Risk Score", f"{combined:.3f}")
+            st.metric("Coordinator Confidence", f"{coord_prob:.3f}")
         with col2:
-            if pred:
-                st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>', unsafe_allow_html=True)
+            if coord_pred:
+                st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>', unsafe_allow_html=True)
             else:
-                st.markdown('<p class="safe">✅ SAFE EMAIL</p>', unsafe_allow_html=True)
+                st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
 
-# =========================================================
-# COMBINED MODE
-# =========================================================
-else:
+        st.markdown("---")
 
-    url = st.text_input("Enter URL")
-    content = st.text_area("Email Content")
+        with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
+            st.metric("URL ML Agent", f"{url_prob:.3f}")
+            st.progress(url_prob)
 
-    if st.button("Analyze FULL ATTACK VECTOR"):
+            st.metric("Email ML Agent", f"{email_prob:.3f}")
+            st.progress(email_prob)
 
-        if not url.strip() or not content.strip():
-            st.warning("Both URL and Email content required.")
-        else:
-
-            url_prob = models["url_agent"].predict_proba(
-                models["url_vectorizer"].transform([url])
-            )[0][1]
-
-            email_prob = models["email_agent"].predict_proba(
-                models["email_vectorizer"].transform([content])
-            )[0][1]
-
-            X_meta = np.array([[url_prob, email_prob, 1, 1]])
-            coord_prob = models["coordinator_agent"].predict_proba(X_meta)[0][1]
-            coord_pred = coord_prob >= 0.5
-
-            st.subheader("🤖 Coordinator Meta-Agent Decision")
-            st.progress(coord_prob)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Coordinator Confidence", f"{coord_prob:.3f}")
-            with col2:
-                if coord_pred:
-                    st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
-
-            # Agent Breakdown
-            st.markdown("---")
-            with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
-
-                st.metric("URL ML Agent", f"{url_prob:.3f}")
-                st.progress(url_prob)
-
-                st.metric("Email ML Agent", f"{email_prob:.3f}")
-                st.progress(email_prob)
-
-                url_rule_score = rule_based_score(extract_domain_info(url))
-                st.metric("URL Rule Agent", f"{url_rule_score:.3f}")
-                st.progress(url_rule_score)
+            url_rule_score = rule_based_score(extract_domain_info(url))
+            st.metric("URL Rule Agent", f"{url_rule_score:.3f}")
+            st.progress(url_rule_score)
 
 # =========================================================
 # FOOTER
