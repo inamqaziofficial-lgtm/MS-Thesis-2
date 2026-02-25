@@ -20,34 +20,26 @@ st.set_page_config(
 )
 
 # =========================================================
-# CUSTOM DARK CYBERSECURITY THEME
+# CYBER DARK THEME (FIXED VISIBILITY)
 # =========================================================
 st.markdown("""
 <style>
 
-/* App background */
+/* Background */
 .stApp {
-    background: linear-gradient(135deg, #0f172a, #020617);
+    background: linear-gradient(135deg, #0B1120, #1E293B);
     color: #E5E7EB;
 }
 
-/* Main text color */
-html, body, [class*="css"]  {
+/* Force text visibility */
+html, body, [class*="css"] {
     color: #E5E7EB !important;
-}
-
-/* Labels */
-label, .stRadio label {
-    color: #E5E7EB !important;
-    font-weight: 500;
 }
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
     background-color: #111827;
 }
-
-/* Sidebar text */
 section[data-testid="stSidebar"] * {
     color: #F9FAFB !important;
 }
@@ -57,22 +49,16 @@ h1 {
     color: #38BDF8 !important;
     text-align: center;
 }
-
 h2, h3 {
     color: #34D399 !important;
 }
 
-/* Input fields */
+/* Inputs */
 textarea, input {
     background-color: #1E293B !important;
     color: #F8FAFC !important;
     border-radius: 8px !important;
     border: 1px solid #334155 !important;
-}
-
-/* Placeholder text */
-::placeholder {
-    color: #94A3B8 !important;
 }
 
 /* Buttons */
@@ -84,21 +70,15 @@ textarea, input {
     font-weight: bold;
     border: none;
 }
-
 .stButton>button:hover {
     background: linear-gradient(90deg, #0EA5E9, #38BDF8);
     color: black;
 }
 
-/* Metric labels */
-[data-testid="stMetricLabel"] {
-    color: #CBD5E1 !important;
-}
-
 /* Metric values */
 [data-testid="stMetricValue"] {
-    color: #F8FAFC !important;
     font-size: 28px;
+    color: #F8FAFC !important;
 }
 
 /* Progress bar */
@@ -106,13 +86,12 @@ div[data-testid="stProgressBar"] > div > div {
     background-color: #22D3EE !important;
 }
 
-/* Success / Phishing colors */
+/* Result colors */
 .safe {
     color: #22C55E;
     font-weight: bold;
     font-size: 22px;
 }
-
 .phish {
     color: #EF4444;
     font-weight: bold;
@@ -139,7 +118,7 @@ with st.sidebar:
         ["URL Detection", "Email Detection", "Combined URL + Email"]
     )
     st.markdown("---")
-    st.info("Multi-Agent Architecture\n\nURL Agent\nEmail Agent\nCoordinator Agent")
+    st.info("Multi-Agent Architecture\n\nURL Agent\nEmail Agent\nRule Agents\nCoordinator Agent")
 
 # =========================================================
 # UTILITIES
@@ -161,7 +140,6 @@ def to_naive(dt):
 def extract_domain_info(domain):
     info = {}
     now = datetime.utcnow()
-
     ext = tldextract.extract(domain)
     registered = ext.registered_domain or domain
 
@@ -198,7 +176,6 @@ def extract_domain_info(domain):
 def rule_based_score(info):
     score = 0
     total = 4
-
     if info["domain_age_days"] and info["domain_age_days"] < 30:
         score += 1
     if not info["resolved_ips"]:
@@ -207,7 +184,6 @@ def rule_based_score(info):
         score += 1
     if info["entropy"] > 3.5:
         score += 1
-
     return score / total
 
 # =========================================================
@@ -224,7 +200,6 @@ def header_rule_report(header):
     report["DKIM"] = "PASS" if dkim and "pass" in dkim.group(0).lower() else "FAIL"
     report["DMARC"] = "PASS" if dmarc and "pass" in dmarc.group(0).lower() else "FAIL"
     report["Received hops ≥ 2"] = "PASS" if len(received) >= 2 else "FAIL"
-
     return report
 
 def header_risk_score(header):
@@ -233,7 +208,7 @@ def header_risk_score(header):
     return fails / len(report), report
 
 # =========================================================
-# MODEL LOADER
+# LOAD MODELS
 # =========================================================
 @st.cache_resource
 def load_models():
@@ -251,7 +226,7 @@ def load_models():
 models = load_models()
 
 # =========================================================
-# MODE 1: URL
+# MODE 1: URL DETECTION
 # =========================================================
 if mode == "URL Detection":
 
@@ -282,7 +257,7 @@ if mode == "URL Detection":
                 st.markdown('<p class="safe">✅ SAFE URL</p>', unsafe_allow_html=True)
 
 # =========================================================
-# MODE 2: EMAIL
+# MODE 2: EMAIL DETECTION
 # =========================================================
 elif mode == "Email Detection":
 
@@ -297,7 +272,6 @@ elif mode == "Email Detection":
 
         header_prob, report = header_risk_score(header) if header else (0, {})
         combined = max(email_prob, header_prob)
-
         pred = combined >= 0.5
 
         st.subheader("📧 Email Analysis Result")
@@ -318,7 +292,7 @@ elif mode == "Email Detection":
                     st.write(f"{k}: {v}")
 
 # =========================================================
-# MODE 3: COMBINED
+# MODE 3: COMBINED FULL ATTACK VECTOR
 # =========================================================
 else:
 
@@ -343,39 +317,46 @@ else:
             coord_prob = models["coordinator_agent"].predict_proba(X_meta)[0][1]
             coord_pred = coord_prob >= 0.5
 
-            # =========================================================
-# AGENT BREAKDOWN (EXPLAINABILITY)
+            st.subheader("🤖 Coordinator Meta-Agent Decision")
+            st.progress(float(coord_prob))
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Coordinator Confidence", f"{coord_prob:.3f}")
+            with col2:
+                if coord_pred:
+                    st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
+
+            # ===============================
+            # AGENT BREAKDOWN SECTION
+            # ===============================
+            st.markdown("---")
+
+            with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
+
+                st.markdown("### 🤖 Individual ML Agent Scores")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("URL ML Agent", f"{url_prob:.3f}")
+                    st.progress(float(url_prob))
+                with col2:
+                    st.metric("Email ML Agent", f"{email_prob:.3f}")
+                    st.progress(float(email_prob))
+
+                st.markdown("---")
+
+                st.markdown("### 🧠 Rule-Based Supporting Signals")
+
+                url_rule_score = rule_based_score(extract_domain_info(url))
+                st.metric("URL Rule Agent", f"{url_rule_score:.3f}")
+                st.progress(float(url_rule_score))
+
 # =========================================================
-
-st.markdown("---")
-
-with st.expander("🔎 Detailed Agent Breakdown (Explainability)", expanded=False):
-
-    st.markdown("### 🤖 Individual Agent Confidence Scores")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("URL ML Agent", f"{url_prob:.3f}")
-        st.progress(float(url_prob))
-
-    with col2:
-        st.metric("Email ML Agent", f"{email_prob:.3f}")
-        st.progress(float(email_prob))
-
-    st.markdown("---")
-
-    # Supporting Rule-Based Analysis
-    st.markdown("### 🧠 Supporting Rule-Based Signals")
-
-    # URL Rule Agent
-    url_rule_score = rule_based_score(extract_domain_info(url))
-    st.metric("URL Rule-Based Agent", f"{url_rule_score:.3f}")
-    st.progress(float(url_rule_score))
-
-    # Header Rule Agent (if needed in future)
-    # You can extend this when header is added in combined mode
-
+# FOOTER
+# =========================================================
 st.markdown("---")
 st.markdown(
     "<center>© 2026 | Multi-Agent Phishing Detection Framework | MS Thesis Project</center>",
