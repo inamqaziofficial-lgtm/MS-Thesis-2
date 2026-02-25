@@ -343,17 +343,38 @@ else:
             coord_prob = models["coordinator_agent"].predict_proba(X_meta)[0][1]
             coord_pred = coord_prob >= 0.5
 
-            st.subheader("🤖 Coordinator Meta-Agent Decision")
-            st.progress(float(coord_prob))
+            # =========================================================
+# AGENT BREAKDOWN (EXPLAINABILITY)
+# =========================================================
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Coordinator Confidence", f"{coord_prob:.3f}")
-            with col2:
-                if coord_pred:
-                    st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
+st.markdown("---")
+
+with st.expander("🔎 Detailed Agent Breakdown (Explainability)", expanded=False):
+
+    st.markdown("### 🤖 Individual Agent Confidence Scores")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("URL ML Agent", f"{url_prob:.3f}")
+        st.progress(float(url_prob))
+
+    with col2:
+        st.metric("Email ML Agent", f"{email_prob:.3f}")
+        st.progress(float(email_prob))
+
+    st.markdown("---")
+
+    # Supporting Rule-Based Analysis
+    st.markdown("### 🧠 Supporting Rule-Based Signals")
+
+    # URL Rule Agent
+    url_rule_score = rule_based_score(extract_domain_info(url))
+    st.metric("URL Rule-Based Agent", f"{url_rule_score:.3f}")
+    st.progress(float(url_rule_score))
+
+    # Header Rule Agent (if needed in future)
+    # You can extend this when header is added in combined mode
 
 st.markdown("---")
 st.markdown(
