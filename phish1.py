@@ -20,82 +20,88 @@ st.set_page_config(
 )
 
 # =========================================================
-# SAFE DARK THEME (NO AGGRESSIVE CSS)
+# CLEAN PROFESSIONAL LIGHT THEME
 # =========================================================
 st.markdown("""
 <style>
 
-/* Background */
+/* ================= Background ================= */
 .stApp {
-    background: linear-gradient(135deg, #0B1120, #1E293B);
+    background: linear-gradient(135deg, #F8FAFC, #E2E8F0);
 }
 
-/* Sidebar */
+/* ================= Sidebar ================= */
 section[data-testid="stSidebar"] {
-    background-color: #111827;
+    background-color: #FFFFFF;
+    border-right: 1px solid #E2E8F0;
 }
 section[data-testid="stSidebar"] * {
-    color: #F9FAFB !important;
+    color: #0F172A !important;
 }
 
-/* Headers */
+/* ================= Headers ================= */
 h1 {
-    color: #38BDF8 !important;
+    color: #1D4ED8 !important;
     text-align: center;
 }
 h2, h3 {
-    color: #34D399 !important;
+    color: #0F766E !important;
 }
 
-/* Inputs */
+/* ================= Input Labels ================= */
+div[data-testid="stWidgetLabel"] {
+    color: #0F172A !important;
+    font-weight: 600 !important;
+}
+
+/* ================= Inputs ================= */
 textarea, input {
-    background-color: #1E293B !important;
-    color: #F8FAFC !important;
-    border: 1px solid #334155 !important;
-    caret-color: #22D3EE !important;  /* Visible cursor */
+    background-color: #FFFFFF !important;
+    color: #0F172A !important;
+    border: 1px solid #CBD5E1 !important;
+    border-radius: 8px !important;
+    caret-color: #2563EB !important;
 }
 
-/* Buttons */
+/* ================= Buttons ================= */
 .stButton>button {
-    background: linear-gradient(90deg, #2563EB, #0EA5E9);
+    background: linear-gradient(90deg, #2563EB, #3B82F6);
     color: white;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 0.5em 1.2em;
-    font-weight: bold;
+    font-weight: 600;
     border: none;
 }
 .stButton>button:hover {
-    background: linear-gradient(90deg, #0EA5E9, #38BDF8);
-    color: black;
+    background: linear-gradient(90deg, #1D4ED8, #2563EB);
+    color: white;
 }
 
-/* Metric label */
+/* ================= Metrics ================= */
 [data-testid="stMetricLabel"] {
-    color: #CBD5E1 !important;
+    color: #334155 !important;
     font-weight: 600;
 }
-
-/* Metric value */
 [data-testid="stMetricValue"] {
-    color: #F8FAFC !important;
+    color: #0F172A !important;
     font-size: 28px;
 }
 
-/* Progress bar */
+/* ================= Progress ================= */
 div[data-testid="stProgressBar"] > div > div {
-    background-color: #22D3EE !important;
+    background-color: #2563EB !important;
 }
 
-/* Result colors */
+/* ================= Result Colors ================= */
 .safe {
-    color: #22C55E;
+    color: #16A34A;
     font-weight: bold;
-    font-size: 22px;
+    font-size: 20px;
 }
 .phish {
-    color: #EF4444;
+    color: #DC2626;
     font-weight: bold;
-    font-size: 22px;
+    font-size: 20px;
 }
 
 </style>
@@ -229,11 +235,9 @@ models = load_models()
 # URL MODE
 # =========================================================
 if mode == "URL Detection":
-
     url = st.text_input("Enter URL")
 
     if st.button("Analyze URL") and url.strip():
-
         info = extract_domain_info(url)
         rule_score = rule_based_score(info)
 
@@ -251,21 +255,17 @@ if mode == "URL Detection":
         with col1:
             st.metric("Suspiciousness Score", f"{final_prob:.3f}")
         with col2:
-            if pred:
-                st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>', unsafe_allow_html=True)
-            else:
-                st.markdown('<p class="safe">✅ SAFE URL</p>', unsafe_allow_html=True)
+            st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>' if pred
+                        else '<p class="safe">✅ SAFE URL</p>', unsafe_allow_html=True)
 
 # =========================================================
 # EMAIL MODE
 # =========================================================
 elif mode == "Email Detection":
-
     content = st.text_area("Email Content")
     header = st.text_area("Email Header (Optional)")
 
     if st.button("Analyze Email") and content.strip():
-
         email_prob = models["email_agent"].predict_proba(
             models["email_vectorizer"].transform([content])
         )[0][1]
@@ -281,25 +281,20 @@ elif mode == "Email Detection":
         with col1:
             st.metric("Risk Score", f"{combined:.3f}")
         with col2:
-            if pred:
-                st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>', unsafe_allow_html=True)
-            else:
-                st.markdown('<p class="safe">✅ SAFE EMAIL</p>', unsafe_allow_html=True)
+            st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>' if pred
+                        else '<p class="safe">✅ SAFE EMAIL</p>', unsafe_allow_html=True)
 
 # =========================================================
 # COMBINED MODE
 # =========================================================
 else:
-
     url = st.text_input("Enter URL")
     content = st.text_area("Email Content")
 
     if st.button("Analyze FULL ATTACK VECTOR"):
-
         if not url.strip() or not content.strip():
             st.warning("Both URL and Email content required.")
         else:
-
             url_prob = models["url_agent"].predict_proba(
                 models["url_vectorizer"].transform([url])
             )[0][1]
@@ -319,15 +314,11 @@ else:
             with col1:
                 st.metric("Coordinator Confidence", f"{coord_prob:.3f}")
             with col2:
-                if coord_pred:
-                    st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
+                st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>' if coord_pred
+                            else '<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
 
-            # Agent Breakdown
             st.markdown("---")
             with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
-
                 st.metric("URL ML Agent", f"{url_prob:.3f}")
                 st.progress(url_prob)
 
