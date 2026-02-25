@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # =========================================================
-# CYBER DARK THEME (FIXED VISIBILITY)
+# SAFE DARK THEME (NO AGGRESSIVE CSS)
 # =========================================================
 st.markdown("""
 <style>
@@ -28,12 +28,6 @@ st.markdown("""
 /* Background */
 .stApp {
     background: linear-gradient(135deg, #0B1120, #1E293B);
-    color: #E5E7EB;
-}
-
-/* Force text visibility */
-html, body, [class*="css"] {
-    color: #E5E7EB !important;
 }
 
 /* Sidebar */
@@ -57,8 +51,8 @@ h2, h3 {
 textarea, input {
     background-color: #1E293B !important;
     color: #F8FAFC !important;
-    border-radius: 8px !important;
     border: 1px solid #334155 !important;
+    caret-color: #22D3EE !important;  /* Visible cursor */
 }
 
 /* Buttons */
@@ -75,10 +69,16 @@ textarea, input {
     color: black;
 }
 
-/* Metric values */
+/* Metric label */
+[data-testid="stMetricLabel"] {
+    color: #CBD5E1 !important;
+    font-weight: 600;
+}
+
+/* Metric value */
 [data-testid="stMetricValue"] {
-    font-size: 28px;
     color: #F8FAFC !important;
+    font-size: 28px;
 }
 
 /* Progress bar */
@@ -187,7 +187,7 @@ def rule_based_score(info):
     return score / total
 
 # =========================================================
-# EMAIL HEADER RULE AGENT
+# HEADER RULE AGENT
 # =========================================================
 def header_rule_report(header):
     report = {}
@@ -226,7 +226,7 @@ def load_models():
 models = load_models()
 
 # =========================================================
-# MODE 1: URL DETECTION
+# URL MODE
 # =========================================================
 if mode == "URL Detection":
 
@@ -245,7 +245,7 @@ if mode == "URL Detection":
         pred = final_prob >= 0.5
 
         st.subheader("🔍 URL Analysis Result")
-        st.progress(float(final_prob))
+        st.progress(final_prob)
 
         col1, col2 = st.columns(2)
         with col1:
@@ -257,7 +257,7 @@ if mode == "URL Detection":
                 st.markdown('<p class="safe">✅ SAFE URL</p>', unsafe_allow_html=True)
 
 # =========================================================
-# MODE 2: EMAIL DETECTION
+# EMAIL MODE
 # =========================================================
 elif mode == "Email Detection":
 
@@ -275,7 +275,7 @@ elif mode == "Email Detection":
         pred = combined >= 0.5
 
         st.subheader("📧 Email Analysis Result")
-        st.progress(float(combined))
+        st.progress(combined)
 
         col1, col2 = st.columns(2)
         with col1:
@@ -286,13 +286,8 @@ elif mode == "Email Detection":
             else:
                 st.markdown('<p class="safe">✅ SAFE EMAIL</p>', unsafe_allow_html=True)
 
-        if report:
-            with st.expander("🔎 Header Rule Report"):
-                for k, v in report.items():
-                    st.write(f"{k}: {v}")
-
 # =========================================================
-# MODE 3: COMBINED FULL ATTACK VECTOR
+# COMBINED MODE
 # =========================================================
 else:
 
@@ -318,7 +313,7 @@ else:
             coord_pred = coord_prob >= 0.5
 
             st.subheader("🤖 Coordinator Meta-Agent Decision")
-            st.progress(float(coord_prob))
+            st.progress(coord_prob)
 
             col1, col2 = st.columns(2)
             with col1:
@@ -329,30 +324,19 @@ else:
                 else:
                     st.markdown('<p class="safe">✅ LEGITIMATE COMMUNICATION</p>', unsafe_allow_html=True)
 
-            # ===============================
-            # AGENT BREAKDOWN SECTION
-            # ===============================
+            # Agent Breakdown
             st.markdown("---")
-
             with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
 
-                st.markdown("### 🤖 Individual ML Agent Scores")
+                st.metric("URL ML Agent", f"{url_prob:.3f}")
+                st.progress(url_prob)
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("URL ML Agent", f"{url_prob:.3f}")
-                    st.progress(float(url_prob))
-                with col2:
-                    st.metric("Email ML Agent", f"{email_prob:.3f}")
-                    st.progress(float(email_prob))
-
-                st.markdown("---")
-
-                st.markdown("### 🧠 Rule-Based Supporting Signals")
+                st.metric("Email ML Agent", f"{email_prob:.3f}")
+                st.progress(email_prob)
 
                 url_rule_score = rule_based_score(extract_domain_info(url))
                 st.metric("URL Rule Agent", f"{url_rule_score:.3f}")
-                st.progress(float(url_rule_score))
+                st.progress(url_rule_score)
 
 # =========================================================
 # FOOTER
