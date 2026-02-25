@@ -20,17 +20,17 @@ st.set_page_config(
 )
 
 # =========================================================
-# DARK THEME WITH FIXED LABELS + CURSOR
+# DARK THEME (STABLE + FIXED LABELS)
 # =========================================================
 st.markdown("""
 <style>
 
-/* Background */
+/* ================= Background ================= */
 .stApp {
     background: linear-gradient(135deg, #0B1120, #1E293B);
 }
 
-/* Sidebar */
+/* ================= Sidebar ================= */
 section[data-testid="stSidebar"] {
     background-color: #111827;
 }
@@ -38,7 +38,7 @@ section[data-testid="stSidebar"] * {
     color: #F9FAFB !important;
 }
 
-/* Headers */
+/* ================= Headers ================= */
 h1 {
     color: #38BDF8 !important;
     text-align: center;
@@ -47,23 +47,26 @@ h2, h3 {
     color: #34D399 !important;
 }
 
-/* INPUT LABELS FIX */
+/* ================= INPUT LABEL FIX ================= */
+div[data-testid="stWidgetLabel"] {
+    color: #F8FAFC !important;
+    font-weight: 600 !important;
+}
 div[data-testid="stWidgetLabel"] label {
-    color: #E2E8F0 !important;
-    font-weight: 600;
-    font-size: 14px;
+    color: #F8FAFC !important;
+    font-weight: 600 !important;
 }
 
-/* Inputs */
+/* ================= Inputs ================= */
 textarea, input {
     background-color: #1E293B !important;
     color: #F8FAFC !important;
-    border: 1px solid #334155 !important;
+    border: 1px solid #475569 !important;
     border-radius: 8px !important;
     caret-color: #22D3EE !important;
 }
 
-/* Buttons */
+/* ================= Buttons ================= */
 .stButton>button {
     background: linear-gradient(90deg, #2563EB, #0EA5E9);
     color: white;
@@ -77,24 +80,22 @@ textarea, input {
     color: black;
 }
 
-/* Metric label */
+/* ================= Metrics ================= */
 [data-testid="stMetricLabel"] {
     color: #CBD5E1 !important;
     font-weight: 600;
 }
-
-/* Metric value */
 [data-testid="stMetricValue"] {
     color: #F8FAFC !important;
     font-size: 28px;
 }
 
-/* Progress bar */
+/* ================= Progress ================= */
 div[data-testid="stProgressBar"] > div > div {
     background-color: #22D3EE !important;
 }
 
-/* Result colors */
+/* ================= Result Colors ================= */
 .safe {
     color: #22C55E;
     font-weight: bold;
@@ -123,7 +124,7 @@ with st.sidebar:
     st.title("Detection Mode")
     mode = st.radio(
         "",
-        ["URL Detection", "Email Detection", "Combined URL + Email"]
+        ["Combined URL + Email"]  # Keeping main mode clean
     )
     st.markdown("---")
     st.info("Multi-Agent Architecture\n\nURL Agent\nEmail Agent\nRule Agents\nCoordinator Agent")
@@ -195,27 +196,6 @@ def rule_based_score(info):
     return score / total
 
 # =========================================================
-# HEADER RULE AGENT
-# =========================================================
-def header_rule_report(header):
-    report = {}
-    spf = re.search(r"spf=(\w+)", header, re.I)
-    dkim = re.search(r"dkim=(\w+)", header, re.I)
-    dmarc = re.search(r"dmarc=(\w+)", header, re.I)
-    received = re.findall(r"^Received:", header, re.I | re.M)
-
-    report["SPF"] = "PASS" if spf and "pass" in spf.group(0).lower() else "FAIL"
-    report["DKIM"] = "PASS" if dkim and "pass" in dkim.group(0).lower() else "FAIL"
-    report["DMARC"] = "PASS" if dmarc and "pass" in dmarc.group(0).lower() else "FAIL"
-    report["Received hops ≥ 2"] = "PASS" if len(received) >= 2 else "FAIL"
-    return report
-
-def header_risk_score(header):
-    report = header_rule_report(header)
-    fails = list(report.values()).count("FAIL")
-    return fails / len(report), report
-
-# =========================================================
 # LOAD MODELS
 # =========================================================
 @st.cache_resource
@@ -234,7 +214,7 @@ def load_models():
 models = load_models()
 
 # =========================================================
-# COMBINED MODE (Most Used)
+# MAIN INPUT
 # =========================================================
 url = st.text_input("Enter URL")
 content = st.text_area("Email Content")
