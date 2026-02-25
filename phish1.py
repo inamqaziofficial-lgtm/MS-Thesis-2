@@ -24,42 +24,101 @@ st.set_page_config(
 # =========================================================
 st.markdown("""
 <style>
+
+/* App background */
 .stApp {
-    background-color: #0E1117;
-    color: #FAFAFA;
+    background: linear-gradient(135deg, #0f172a, #020617);
+    color: #E5E7EB;
 }
+
+/* Main text color */
+html, body, [class*="css"]  {
+    color: #E5E7EB !important;
+}
+
+/* Labels */
+label, .stRadio label {
+    color: #E5E7EB !important;
+    font-weight: 500;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #111827;
+}
+
+/* Sidebar text */
+section[data-testid="stSidebar"] * {
+    color: #F9FAFB !important;
+}
+
+/* Headers */
 h1 {
-    color: #00C2FF;
+    color: #38BDF8 !important;
     text-align: center;
 }
+
 h2, h3 {
-    color: #00FFAA;
+    color: #34D399 !important;
 }
+
+/* Input fields */
+textarea, input {
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border-radius: 8px !important;
+    border: 1px solid #334155 !important;
+}
+
+/* Placeholder text */
+::placeholder {
+    color: #94A3B8 !important;
+}
+
+/* Buttons */
 .stButton>button {
-    background-color: #1F77B4;
+    background: linear-gradient(90deg, #2563EB, #0EA5E9);
     color: white;
     border-radius: 10px;
-    padding: 0.5em 1em;
+    padding: 0.5em 1.2em;
     font-weight: bold;
+    border: none;
 }
+
 .stButton>button:hover {
-    background-color: #00C2FF;
+    background: linear-gradient(90deg, #0EA5E9, #38BDF8);
     color: black;
 }
-textarea, input {
-    background-color: #1A1F2E !important;
-    color: white !important;
+
+/* Metric labels */
+[data-testid="stMetricLabel"] {
+    color: #CBD5E1 !important;
 }
+
+/* Metric values */
+[data-testid="stMetricValue"] {
+    color: #F8FAFC !important;
+    font-size: 28px;
+}
+
+/* Progress bar */
+div[data-testid="stProgressBar"] > div > div {
+    background-color: #22D3EE !important;
+}
+
+/* Success / Phishing colors */
 .safe {
-    color: #00FF88;
+    color: #22C55E;
     font-weight: bold;
     font-size: 22px;
 }
+
 .phish {
-    color: #FF4B4B;
+    color: #EF4444;
     font-weight: bold;
     font-size: 22px;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
