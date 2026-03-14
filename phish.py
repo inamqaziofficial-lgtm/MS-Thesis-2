@@ -1,211 +1,293 @@
 import streamlit as st
-import joblib, socket, ssl, math, tldextract, re
-import whois, dns.resolver
+import joblib
+import socket
+import ssl
+import math
+import tldextract
+import re
+import whois
+import dns.resolver
 from datetime import datetime
+import numpy as np
+from difflib import SequenceMatcher
 
-URL_BLEND = 0.3
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="Multi-Agent Phishing Detector",
+    page_icon="🛡️",
+    layout="wide"
+)
+
+# =========================================================
+# CLEAN PROFESSIONAL LIGHT THEME
+# =========================================================
+st.markdown("""
+<style>
+.stApp {background: linear-gradient(135deg, #F8FAFC, #E2E8F0);}
+section[data-testid="stSidebar"] {background-color: #FFFFFF;border-right: 1px solid #E2E8F0;}
+section[data-testid="stSidebar"] * {color: #0F172A !important;}
+h1 {color: #1D4ED8 !important;text-align: center;}
+h2, h3 {color: #0F766E !important;}
+div[data-testid="stWidgetLabel"] {color: #0F172A !important;font-weight: 600 !important;}
+textarea, input {background-color: #FFFFFF !important;color: #0F172A !important;border: 1px solid #CBD5E1 !important;border-radius: 8px !important;}
+.stButton>button {background: linear-gradient(90deg,#2563EB,#3B82F6);color:white;border-radius:8px;font-weight:600;border:none;}
+.stButton>button:hover {background: linear-gradient(90deg,#1D4ED8,#2563EB);}
+.safe {color:#16A34A;font-weight:bold;font-size:20px;}
+.phish {color:#DC2626;font-weight:bold;font-size:20px;}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# HEADER
+# =========================================================
+st.markdown("<h1>🛡️ Multi-Agent Phishing Detection System</h1>", unsafe_allow_html=True)
+st.markdown("### AI-Driven Multi-Layer Security Framework for FinTech Platforms")
+st.markdown("---")
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+with st.sidebar:
+    st.title("Detection Mode")
+    mode = st.radio("", ["URL Detection","Email Detection","Combined URL + Email"])
+    st.markdown("---")
+    st.info("Multi-Agent Architecture\n\nURL Agent\nEmail Agent\nSender Address Agent\nCoordinator Agent")
 
 # =========================================================
 # UTILITIES
 # =========================================================
 def shannon_entropy(s):
-    if not s:
-        return 0.0
-    prob = [float(s.count(c)) / len(s) for c in set(s)]
-    return -sum([p * math.log2(p) for p in prob])
+    if not s: return 0.0
+    prob=[float(s.count(c))/len(s) for c in set(s)]
+    return -sum([p*math.log2(p) for p in prob])
 
 def to_naive(dt):
-    if isinstance(dt, datetime):
-        return dt.replace(tzinfo=None)
+    if isinstance(dt,datetime): return dt.replace(tzinfo=None)
     return dt
 
 # =========================================================
 # DOMAIN RULE AGENT
 # =========================================================
 def extract_domain_info(domain):
-    info = {}
-    now = datetime.utcnow()
-
-    ext = tldextract.extract(domain)
-    registered = ext.registered_domain or domain
-
-    try:
-        w = whois.whois(registered)
-        created = w.creation_date
-        if isinstance(created, list):
-            created = created[0]
-        created = to_naive(created)
-        info["domain_age_days"] = (now - created).days if created else None
-    except:
-        info["domain_age_days"] = None
+    info={}
+    now=datetime.utcnow()
+    ext=tldextract.extract(domain)
+    registered=ext.registered_domain or domain
 
     try:
-        a = dns.resolver.resolve(registered, 'A', lifetime=5)
-        info["resolved_ips"] = [r.to_text() for r in a]
-    except:
-        info["resolved_ips"] = []
+        w=whois.whois(registered)
+        created=w.creation_date
+        if isinstance(created,list): created=created[0]
+        created=to_naive(created)
+        info["domain_age_days"]=(now-created).days if created else None
+    except: info["domain_age_days"]=None
 
     try:
-        ctx = ssl.create_default_context()
-        with ctx.wrap_socket(socket.socket(), server_hostname=registered) as s:
+        a=dns.resolver.resolve(registered,'A',lifetime=5)
+        info["resolved_ips"]=[r.to_text() for r in a]
+    except: info["resolved_ips"]=[]
+
+    try:
+        ctx=ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(),server_hostname=registered) as s:
             s.settimeout(4)
-            s.connect((registered, 443))
-            info["cert_present"] = True
-    except:
-        info["cert_present"] = False
+            s.connect((registered,443))
+            info["cert_present"]=True
+    except: info["cert_present"]=False
 
-    label = registered.split(".")[0]
-    info["entropy"] = shannon_entropy(label)
+    label=registered.split(".")[0]
+    info["entropy"]=shannon_entropy(label)
+
     return info
 
 def rule_based_score(info):
-    score = 0
-    total = 4
-    if info["domain_age_days"] is not None and info["domain_age_days"] < 30: score += 1
-    if not info["resolved_ips"]: score += 1
-    if not info["cert_present"]: score += 1
-    if info["entropy"] > 3.5: score += 1
-    return score / total
+    score=0
+    total=4
+    if info["domain_age_days"] and info["domain_age_days"]<30: score+=1
+    if not info["resolved_ips"]: score+=1
+    if not info["cert_present"]: score+=1
+    if info["entropy"]>3.5: score+=1
+    return score/total
 
 # =========================================================
-# EMAIL HEADER RULE AGENT
+# SENDER ADDRESS AGENT (NEW)
 # =========================================================
-def extract_email(header_text):
-    f = re.findall(r"From:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
-    r = re.findall(r"Reply-To:.*?([\w\.-]+@[\w\.-]+)", header_text, re.I)
-    return f[0] if f else None, r[0] if r else None
+legitimate_domains=["paypal.com","amazon.com","google.com","microsoft.com","apple.com","facebook.com"]
+free_providers=["gmail.com","yahoo.com","outlook.com","hotmail.com"]
+keywords=["secure","verify","update","alert","login","account","billing","support"]
 
-def header_rule_report(header):
-    report = {}
-    spf = re.search(r"spf=(\w+)", header, re.I)
-    dkim = re.search(r"dkim=(\w+)", header, re.I)
-    dmarc = re.search(r"dmarc=(\w+)", header, re.I)
-    received = re.findall(r"^Received:", header, re.I | re.M)
+def similarity(a,b):
+    return SequenceMatcher(None,a,b).ratio()
 
-    report["Rule 1 (SPF)"] = "PASS" if spf and "pass" in spf.group(0).lower() else "FAIL"
-    report["Rule 2 (DKIM)"] = "PASS" if dkim and "pass" in dkim.group(0).lower() else "FAIL"
-    report["Rule 3 (DMARC)"] = "PASS" if dmarc and "pass" in dmarc.group(0).lower() else "FAIL"
+def digit_ratio(text):
+    digits=sum(c.isdigit() for c in text)
+    return digits/len(text) if len(text)>0 else 0
 
-    from_addr, reply_addr = extract_email(header)
-    if reply_addr is None:
-        report["Rule 4 (From = Reply-To)"] = "PASS"
-    elif from_addr and reply_addr:
-        report["Rule 4 (From = Reply-To)"] = "PASS" if from_addr.split("@")[1] == reply_addr.split("@")[1] else "FAIL"
-    else:
-        report["Rule 4 (From = Reply-To)"] = "FAIL"
+def sender_email_score(email):
+    try:
+        local,domain=email.lower().split("@")
+    except:
+        return 0
 
-    report["Rule 5 (Received hops ≥ 2)"] = "PASS" if len(received) >= 2 else "FAIL"
-    return report
+    score=0
+    total=6
 
-def header_risk_score(header):
-    report = header_rule_report(header)
-    fails = list(report.values()).count("FAIL")
-    return fails / len(report), report
+    # brand with free provider
+    if domain in free_providers:
+        for b in legitimate_domains:
+            if b.split(".")[0] in local:
+                return 1
+
+    # keywords
+    if any(k in local or k in domain for k in keywords):
+        score+=1
+
+    # digits
+    if digit_ratio(local)>0.4:
+        score+=1
+
+    # typosquatting
+    for legit in legitimate_domains:
+        if similarity(domain,legit)>0.85 and domain!=legit:
+            score+=2
+
+    # special characters
+    if len(re.findall(r"[._\-]",local))>3:
+        score+=1
+
+    # long domain
+    if len(domain)>25:
+        score+=1
+
+    return score/total
 
 # =========================================================
-# MODEL LOADER
+# LOAD MODELS
 # =========================================================
 @st.cache_resource
 def load_models():
-    models = {}
+    models={}
     for n in ["url_agent","email_agent","coordinator_agent","url_vectorizer","email_vectorizer"]:
-        try:
-            models[n] = joblib.load(f"{n}.pkl")
-        except:
-            models[n] = None
+        models[n]=joblib.load(f"{n}.pkl")
     return models
 
-models = load_models()
+models=load_models()
 
 # =========================================================
-# UI
+# URL MODE
 # =========================================================
-st.set_page_config(page_title="Multi-Agent Phishing Detector", layout="wide")
-st.title("🛡️ Multi-Agent Phishing Detector")
+if mode=="URL Detection":
+    url=st.text_input("Enter URL")
 
-mode = st.radio(
-    "Select Mode",
-    ["URL Detection", "Email Detection", "Combined URL + Email"]
-)
+    if st.button("Analyze URL") and url.strip():
+        info=extract_domain_info(url)
+        rule_score=rule_based_score(info)
 
-# =========================================================
-# URL MODE (UNCHANGED)
-# =========================================================
-if mode == "URL Detection":
-    url = st.text_input("Enter URL")
-
-    if st.button("Analyze URL") and url:
-        info = extract_domain_info(url)
-        rule_score = rule_based_score(info)
-
-        ml_prob = models["url_agent"].predict_proba(
+        ml_prob=models["url_agent"].predict_proba(
             models["url_vectorizer"].transform([url])
         )[0][1]
 
-        final_prob = URL_BLEND*ml_prob + (1-URL_BLEND)*rule_score
-        meta = [[final_prob,0,1,0]]
-        pred = models["coordinator_agent"].predict(meta)[0]
+        final_prob=0.3*ml_prob+0.7*rule_score
+        pred=final_prob>=0.5
 
-        st.metric("URL Suspiciousness", round(final_prob,3))
-        st.write("Decision:", "PHISHING" if pred else "SAFE")
+        st.subheader("🔍 URL Analysis Result")
+        st.progress(final_prob)
 
-# =========================================================
-# EMAIL MODE (RESTORED — EXACTLY AS ORIGINAL)
-# =========================================================
-elif mode == "Email Detection":
-    content = st.text_area("Email Content")
-    header = st.text_area("Email Header")
-
-    if st.button("Analyze Email"):
-        email_prob = 0
-        if content.strip():   # 👈 IMPORTANT
-            email_prob = models["email_agent"].predict_proba(
-                models["email_vectorizer"].transform([content])
-            )[0][1]
-
-        header_prob, report = header_risk_score(header) if header else (0, {})
-
-        combined = max(email_prob, header_prob)
-        meta = [[0,combined,0,1]]
-        pred = models["coordinator_agent"].predict(meta)[0]
-
-        st.write("Email Content Agent:", round(email_prob,3))
-        st.write("Header Agent:", round(header_prob,3))
-        st.metric("Coordinator Signal", round(combined,3))
-        st.write("Decision:", "PHISHING" if pred else "SAFE")
-
-        if report:
-            st.markdown("### RULE CHECK REPORT")
-            for k,v in report.items():
-                st.write(f"{k}: {v}")
+        col1,col2=st.columns(2)
+        with col1:
+            st.metric("Suspiciousness Score",f"{final_prob:.3f}")
+        with col2:
+            st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>' if pred
+                        else '<p class="safe">✅ SAFE URL</p>',unsafe_allow_html=True)
 
 # =========================================================
-# COMBINED MODE (NEW — SAFE)
+# EMAIL MODE
+# =========================================================
+elif mode=="Email Detection":
+
+    sender_email=st.text_input("Sender Email Address")
+    content=st.text_area("Email Content")
+
+    if st.button("Analyze Email") and content.strip():
+
+        email_prob=models["email_agent"].predict_proba(
+            models["email_vectorizer"].transform([content])
+        )[0][1]
+
+        sender_prob=sender_email_score(sender_email) if sender_email else 0
+
+        combined=max(email_prob,sender_prob)
+        pred=combined>=0.5
+
+        st.subheader("📧 Email Analysis Result")
+        st.progress(combined)
+
+        col1,col2=st.columns(2)
+        with col1:
+            st.metric("Risk Score",f"{combined:.3f}")
+        with col2:
+            st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>' if pred
+                        else '<p class="safe">✅ SAFE EMAIL</p>',unsafe_allow_html=True)
+
+# =========================================================
+# COMBINED MODE
 # =========================================================
 else:
-    url = st.text_input("Enter URL")
-    content = st.text_area("Email Content")
-    header = st.text_area("Email Header (optional)")
+
+    url=st.text_input("Enter URL")
+    sender_email=st.text_input("Sender Email Address")
+    content=st.text_area("Email Content")
 
     if st.button("Analyze FULL ATTACK VECTOR"):
-        url_score = 0
-        if url:
-            info = extract_domain_info(url)
-            rule = rule_based_score(info)
-            ml = models["url_agent"].predict_proba(
+
+        if not url.strip() or not content.strip():
+            st.warning("URL and Email content required.")
+        else:
+
+            url_prob=models["url_agent"].predict_proba(
                 models["url_vectorizer"].transform([url])
             )[0][1]
-            url_score = URL_BLEND*ml + (1-URL_BLEND)*rule
 
-        email_score = 0
-        if content:
-            email_ml = models["email_agent"].predict_proba(
+            email_prob=models["email_agent"].predict_proba(
                 models["email_vectorizer"].transform([content])
             )[0][1]
-            header_p, _ = header_risk_score(header) if header else (0,{})
-            email_score = max(email_ml, header_p)
 
-        meta = [[url_score, email_score, int(bool(url)), int(bool(content))]]
-        pred = models["coordinator_agent"].predict(meta)[0]
+            sender_prob=sender_email_score(sender_email) if sender_email else 0
 
-        st.metric("FINAL DECISION", "PHISHING" if pred else "SAFE")
+            X_meta=np.array([[url_prob,email_prob,sender_prob,1]])
+
+            coord_prob=models["coordinator_agent"].predict_proba(X_meta)[0][1]
+            coord_pred=coord_prob>=0.5
+
+            st.subheader("🤖 Coordinator Meta-Agent Decision")
+            st.progress(coord_prob)
+
+            col1,col2=st.columns(2)
+            with col1:
+                st.metric("Coordinator Confidence",f"{coord_prob:.3f}")
+            with col2:
+                st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>' if coord_pred
+                            else '<p class="safe">✅ LEGITIMATE COMMUNICATION</p>',unsafe_allow_html=True)
+
+            st.markdown("---")
+            with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
+
+                st.metric("URL ML Agent",f"{url_prob:.3f}")
+                st.progress(url_prob)
+
+                st.metric("Email ML Agent",f"{email_prob:.3f}")
+                st.progress(email_prob)
+
+                st.metric("Sender Address Agent",f"{sender_prob:.3f}")
+                st.progress(sender_prob)
+
+# =========================================================
+# FOOTER
+# =========================================================
+st.markdown("---")
+st.markdown(
+    "<center>© 2026 | Multi-Agent Phishing Detection Framework | MS Thesis Project</center>",
+    unsafe_allow_html=True
+)
