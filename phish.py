@@ -71,6 +71,7 @@ def to_naive(dt):
 # DOMAIN RULE AGENT
 # =========================================================
 def extract_domain_info(domain):
+
     info={}
     now=datetime.utcnow()
     ext=tldextract.extract(domain)
@@ -82,12 +83,14 @@ def extract_domain_info(domain):
         if isinstance(created,list): created=created[0]
         created=to_naive(created)
         info["domain_age_days"]=(now-created).days if created else None
-    except: info["domain_age_days"]=None
+    except:
+        info["domain_age_days"]=None
 
     try:
         a=dns.resolver.resolve(registered,'A',lifetime=5)
         info["resolved_ips"]=[r.to_text() for r in a]
-    except: info["resolved_ips"]=[]
+    except:
+        info["resolved_ips"]=[]
 
     try:
         ctx=ssl.create_default_context()
@@ -95,7 +98,8 @@ def extract_domain_info(domain):
             s.settimeout(4)
             s.connect((registered,443))
             info["cert_present"]=True
-    except: info["cert_present"]=False
+    except:
+        info["cert_present"]=False
 
     label=registered.split(".")[0]
     info["entropy"]=shannon_entropy(label)
@@ -105,14 +109,20 @@ def extract_domain_info(domain):
 def rule_based_score(info):
     score=0
     total=4
-    if info["domain_age_days"] and info["domain_age_days"]<30: score+=1
-    if not info["resolved_ips"]: score+=1
-    if not info["cert_present"]: score+=1
-    if info["entropy"]>3.5: score+=1
+
+    if info["domain_age_days"] and info["domain_age_days"]<30:
+        score+=1
+    if not info["resolved_ips"]:
+        score+=1
+    if not info["cert_present"]:
+        score+=1
+    if info["entropy"]>3.5:
+        score+=1
+
     return score/total
 
 # =========================================================
-# SENDER ADDRESS AGENT (NEW)
+# SENDER ADDRESS AGENT
 # =========================================================
 legitimate_domains=["paypal.com","amazon.com","google.com","microsoft.com","apple.com","facebook.com"]
 free_providers=["gmail.com","yahoo.com","outlook.com","hotmail.com"]
@@ -126,6 +136,7 @@ def digit_ratio(text):
     return digits/len(text) if len(text)>0 else 0
 
 def sender_email_score(email):
+
     try:
         local,domain=email.lower().split("@")
     except:
@@ -134,30 +145,24 @@ def sender_email_score(email):
     score=0
     total=6
 
-    # brand with free provider
     if domain in free_providers:
         for b in legitimate_domains:
             if b.split(".")[0] in local:
                 return 1
 
-    # keywords
     if any(k in local or k in domain for k in keywords):
         score+=1
 
-    # digits
     if digit_ratio(local)>0.4:
         score+=1
 
-    # typosquatting
     for legit in legitimate_domains:
         if similarity(domain,legit)>0.85 and domain!=legit:
             score+=2
 
-    # special characters
     if len(re.findall(r"[._\-]",local))>3:
         score+=1
 
-    # long domain
     if len(domain)>25:
         score+=1
 
@@ -179,9 +184,11 @@ models=load_models()
 # URL MODE
 # =========================================================
 if mode=="URL Detection":
+
     url=st.text_input("Enter URL")
 
     if st.button("Analyze URL") and url.strip():
+
         info=extract_domain_info(url)
         rule_score=rule_based_score(info)
 
@@ -196,11 +203,12 @@ if mode=="URL Detection":
         st.progress(final_prob)
 
         col1,col2=st.columns(2)
+
         with col1:
             st.metric("Suspiciousness Score",f"{final_prob:.3f}")
+
         with col2:
-            st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>' if pred
-                        else '<p class="safe">✅ SAFE URL</p>',unsafe_allow_html=True)
+            st.markdown('<p class="phish">🚨 PHISHING DETECTED</p>' if pred else '<p class="safe">✅ SAFE URL</p>',unsafe_allow_html=True)
 
 # =========================================================
 # EMAIL MODE
@@ -218,18 +226,32 @@ elif mode=="Email Detection":
 
         sender_prob=sender_email_score(sender_email) if sender_email else 0
 
-        combined=max(email_prob,sender_prob)
-        pred=combined>=0.5
+        final_prob=0.7*email_prob+0.3*sender_prob
+        pred=final_prob>=0.5
 
         st.subheader("📧 Email Analysis Result")
-        st.progress(combined)
+        st.progress(final_prob)
 
         col1,col2=st.columns(2)
+
         with col1:
-            st.metric("Risk Score",f"{combined:.3f}")
+            st.metric("Final Risk Score",f"{final_prob:.3f}")
+
         with col2:
-            st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>' if pred
-                        else '<p class="safe">✅ SAFE EMAIL</p>',unsafe_allow_html=True)
+            st.markdown('<p class="phish">🚨 PHISHING EMAIL</p>' if pred else '<p class="safe">✅ SAFE EMAIL</p>',unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("🔎 Agent Breakdown")
+
+        colA,colB=st.columns(2)
+
+        with colA:
+            st.metric("Email Content Agent",f"{email_prob:.3f}")
+            st.progress(email_prob)
+
+        with colB:
+            st.metric("Sender Address Agent",f"{sender_prob:.3f}")
+            st.progress(sender_prob)
 
 # =========================================================
 # COMBINED MODE
@@ -243,7 +265,7 @@ else:
     if st.button("Analyze FULL ATTACK VECTOR"):
 
         if not url.strip() or not content.strip():
-            st.warning("URL and Email content required.")
+            st.warning("Both URL and Email content required.")
         else:
 
             url_prob=models["url_agent"].predict_proba(
@@ -265,14 +287,16 @@ else:
             st.progress(coord_prob)
 
             col1,col2=st.columns(2)
+
             with col1:
                 st.metric("Coordinator Confidence",f"{coord_prob:.3f}")
+
             with col2:
-                st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>' if coord_pred
-                            else '<p class="safe">✅ LEGITIMATE COMMUNICATION</p>',unsafe_allow_html=True)
+                st.markdown('<p class="phish">🚨 PHISHING ATTACK</p>' if coord_pred else '<p class="safe">✅ LEGITIMATE COMMUNICATION</p>',unsafe_allow_html=True)
 
             st.markdown("---")
-            with st.expander("🔎 Detailed Agent Breakdown (Explainability)"):
+
+            with st.expander("🔎 Detailed Agent Breakdown"):
 
                 st.metric("URL ML Agent",f"{url_prob:.3f}")
                 st.progress(url_prob)
@@ -287,7 +311,4 @@ else:
 # FOOTER
 # =========================================================
 st.markdown("---")
-st.markdown(
-    "<center>© 2026 | Multi-Agent Phishing Detection Framework | MS Thesis Project</center>",
-    unsafe_allow_html=True
-)
+st.markdown("<center>© 2026 | Multi-Agent Phishing Detection Framework | MS Thesis Project</center>",unsafe_allow_html=True)
